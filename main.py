@@ -23,6 +23,8 @@ if __name__ == "__main__":
     if not os.path.exists(associate_file):
         dataset.tum_preprocess(config)
 
+    dataset = dataset.TUMDataset(config)
+
     # with open(associate_file, "r") as af:
     #     for line in af.readlines():
     #         _, rgb, _, depth = line.strip().split(" ")

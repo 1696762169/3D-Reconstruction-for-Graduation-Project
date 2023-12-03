@@ -1,8 +1,10 @@
 from torch.utils.data import Dataset
-import argparse
-import sys
+import torch
 import os
-import numpy
+import numpy as np
+import cv2
+from math import sqrt
+from tqdm import tqdm
 import utils
 
 def read_file_list(filepath):
@@ -90,4 +92,76 @@ def tum_preprocess(config):
             f.write(f"{key} {' '.join(matches[key])}\n")
 
 class TUMDataset(Dataset):
-    pass
+    USE_RGB = False
+
+    def __init__(self, config: utils.DotDict, online: bool = False) -> None:
+        """TUM数据集
+        :param config: 配置文件
+        :param online: 是否在使用时才读取数据"""
+        super().__init__()
+        self.config = config
+        # 读取关联文件内容 避免反复打开文件
+        associate_file_path = os.path.join(self.config.data_root, self.config.tum.associate_file)
+        with open(associate_file_path, "r") as af:
+            self.associate = af.readlines()
+
+        # 内参矩阵
+        self.K = utils.get_calib_matrix(self.config.data_type)
+        # 读取数据
+        self.data = [None] * len(self.associate)
+        if not online:
+            print("Loading data from", self.config.data_root, "...")
+            for index, line in enumerate(tqdm(self.associate)):
+                self.__load_data(line, index)
+
+    def __len__(self):
+        return len(self.data)
+    def __getitem__(self, index):
+        if self.data[index] is None:
+            self.data[index] = self.__load_data(self.associate[index], index)
+        return self.data[index]
+    
+    def __load_data(self, associate: str, index: int):
+        """读取一行数据"""
+        data = associate.strip().split(" ")
+        root = self.config.data_root
+        # 深度图像
+        depth = cv2.imread(os.path.join(root, data[3]), cv2.IMREAD_ANYDEPTH).astype(np.float32) / self.config.tum.depth_scale
+        invalid = (depth < self.config.depth_near) | (depth > self.config.depth_far)
+        depth[invalid] = -1
+        # RGB图像
+        rgb = cv2.imread(os.path.join(root, data[1])) if TUMDataset.USE_RGB else None
+        # 位姿
+        pose = TUMDataset.__tum2homogeneous([float(value) for value in data[5:]])
+        
+        self.data[index] = TUMData(torch.from_numpy(depth), torch.from_numpy(rgb) if rgb else None, torch.from_numpy(pose))
+    
+    @staticmethod
+    def __tum2homogeneous(gt_pose: list[float]) -> np.ndarray:
+        """将TUM数据集的位姿转换为齐次矩阵形式"""
+        # 解析位移信息
+        ret = np.eye(4)
+        ret[:3, 3] = gt_pose[:3]
+        t = gt_pose[:3]
+
+        # 解析旋转信息
+        q = np.array(gt_pose[3:], dtype=np.float64, copy=True)
+        norm = np.linalg.norm(q)
+        # 判断四元数模长是否过小 并进行归一化 为后续计算方便 归一化结果的模长为sqrt(2.0)
+        if norm < np.finfo(np.float64).eps:
+            return ret
+        q /= norm / sqrt(2.0)
+
+        # 将四元数转换为旋转矩阵 此处四元数的顺序是x, y, z, w
+        q = np.outer(q, q)
+        ret[:3, :3] = np.array([
+            [1.0-q[1, 1]-q[2, 2],     q[0, 1]-q[2, 3],     q[0, 2]+q[1, 3]],
+            [    q[0, 1]+q[2, 3], 1.0-q[0, 0]-q[2, 2],     q[1, 2]-q[0, 3]],
+            [    q[0, 2]-q[1, 3],     q[1, 2]+q[0, 3], 1.0-q[0, 0]-q[1, 1]]])
+        return ret
+
+class TUMData(object):
+    def __init__(self, depth, rgb, pose) -> None:
+        self.depth = depth
+        self.rgb = rgb
+        self.pose = pose

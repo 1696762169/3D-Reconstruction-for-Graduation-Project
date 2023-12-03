@@ -4,6 +4,12 @@ import numpy as np
 import yaml
 
 class DotDict(dict):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for key, value in kwargs.items():
+            if isinstance(value, dict):
+                self[key] = DotDict(**value)
+
     def __getattr__(self, item):
         try:
             return self[item]
@@ -55,6 +61,18 @@ def get_calib(data_type: str):
             "cx": 320.1,
             "cy": 247.6
         }
+
+def get_calib_matrix(data_type: str):
+    r"""
+    获取相机校准内参矩阵
+    数据来源: https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats
+    """
+    calib_list = get_calib(data_type)
+    return np.array([
+        [calib_list["fx"], 0, calib_list["cx"]],
+        [0, calib_list["fy"], calib_list["cy"]],
+        [0, 0, 1]
+    ]) if calib_list else None
 
 def bilateral_filter(image, diameter: float, sigma_i: float, sigma_s: float):
     """

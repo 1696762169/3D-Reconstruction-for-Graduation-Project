@@ -1,5 +1,7 @@
 data_root: data/rgbd_dataset_freiburg1_teddy/ # the following args are relative to data_root(if not absolute path)
 data_type: fr1  # determind the data format
+depth_far: 10.0 # depth far plane
+depth_near: 0.1 # depth near plane
 tum:
     rgb_data: rgb/  # rgb data root
     depth_data: depth/  # depth data root
@@ -12,7 +14,7 @@ tum:
     match_tolerance: 0.02 # match tolerance for associate
     match_offset: 0.0 # time offset added to the timestamps of the second file when associating
 
-    camera_factor: 5000.0 # depth image scale
+    depth_scale: 5000.0 # depth image scale
 bilateral_filter:
     diameter: 5
     sigma_color: 50
